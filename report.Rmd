@@ -1,0 +1,686 @@
+---
+title: 'Reproducible report: <br/> Diversity of Fusarium and related mycotoxins in Brazilian rice '
+output:
+   html_document:
+    css: style/my-style.css
+    depth: 5
+    theme: cerulean
+    highlight: tango
+    df_print: paged
+    number_sections: no
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+date: 'Created: 2020-01-05 <br/>Last update: `r Sys.Date()`'
+---
+
+<link href="https://fonts.googleapis.com/css?family=Oswald" rel="stylesheet">
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+library(tidyverse)
+library(janitor)
+library(ggthemes)
+library(cowplot)
+library(ggrepel)
+library(cowplot)
+library(ggsci)
+library(viridis)
+theme_set(theme_minimal())
+```
+
+
+
+## Load and prepare data
+
+The data were stored in a csv file and were loaded using the `read_csv` function. 
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+Sys.setlocale("LC_ALL", "pt_BR.UTF-8")
+# Use UTF to portuguese to preserve the names of the locations. 
+
+
+dat_fus <- read_csv("data/data_fus.csv")
+
+dat_fus
+
+```
+
+## Map of samples
+
+We will produce a map with all the locations where the samples were obtained, and the number of samples per location.
+
+```{r message=FALSE, warning=FALSE}
+library(rnaturalearth)
+```
+
+We will extract Brazil map and create an object of class sf. 
+
+```{r}
+BRA <- ne_states(
+  country = "Brazil",
+  returnclass = "sf"
+)
+```
+
+Now we summarize the number of sample per location and use these data for the map plot. We use only the kernel substrate to avoid duplicated records for the other two levels of substrate.
+
+```{r}
+dat_plot <- dat_fus %>%
+  filter(substrate == "kernel") %>%
+  group_by(city, state, lat, lon) %>%
+  summarize(
+    lat2 = mean(as.numeric(lat)),
+    samples = n()
+  )
+```
+
+Now the map.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(BRA) +
+  geom_sf(fill = "grey99", size=0.3) +
+    #coord_sf(datum = NA) +
+      geom_jitter(data = dat_plot, aes(as.numeric(lon), as.numeric(lat2)),
+                  color = "Black", size = 3, shape=16, alpha = 0.6) +
+  theme_map() +
+  geom_text_repel(data = dat_plot %>%  filter(samples > 1), aes(label = samples, x = as.numeric(lon), y = as.numeric(lat2)), size = 4, vjust = 0, nudge_y = 0.4,
+                  segment.size = 0.5) +
+  theme(legend.position = "right") +
+  scale_size(guide=FALSE)+
+  scale_colour_brewer(palette = "Set1")+
+  guides(colour = guide_legend(override.aes = list(size=4)))+
+  labs(x = "Longitude", y = "Latitude", color = "Brazilian State \n (n. of samples)")+
+  ggsave("figs/Figure1-map.png", width=6)
+```
+
+
+## Fusarium prevalence
+
+The data were organized in the wide format, where each species and mycotoxins are in separate columns. We will use `gather` function to have all species names and the number of isolates in separate colums. Let's work with the Fusarium species first. We also need to filter the rows to use only one of the three substrates because mycotoxin concentration was determined for flour and husks of rice kernels. 
+
+
+```{r}
+# Number of samples with zero isolates
+dat_fus %>% 
+filter(substrate == "kernel") %>%
+  filter(n_isolates == 0) %>% 
+  nrow()
+```
+
+
+
+```{r}
+# total number of isolates
+dat_fus %>% summarize(n_isol2 = sum(n_isolates))
+```
+
+
+```{r}
+# Number of samples with zero isolates
+dat_fus %>% 
+filter(substrate == "kernel") %>%
+  filter(n_isolates >0) %>% 
+  summarize(mean_isolates = mean(n_isolates),
+            median_isolates = median(n_isolates),
+            min_isolates = min(n_isolates),
+            max_isolates = max(n_isolates))
+
+class <- dat_fus %>% 
+filter(substrate == "kernel") %>%
+  filter(n_isolates >0) %>% 
+  select(n_isolates, Complex) %>% 
+  mutate(class_isolates = case_when(n_isolates < 2 ~ "1",
+                                    n_isolates < 3 ~ "2",
+                                    n_isolates < 6 ~ "3-5",
+                                    n_isolates < 11 ~ "6-10",
+                                    n_isolates < 21 ~ "11-20",
+                                    TRUE ~ "29"
+                                 )) 
+class$class_isolates = factor(class$class_isolates, levels = c("1", "2", "3-5", "6-10", "11-20", "29"))
+isolates_class <- class %>%   
+ggplot(aes(x = class_isolates, fill = Complex))+
+  geom_bar(fill = "steelblue") +
+  labs(x = "Number of isolates per sample", 
+       y = "Number of samples")
+
+```
+
+Number of isolates by state
+
+
+Let's use only the kernel results and create the `dat` tibble.
+
+```{r}
+dat <- dat_fus %>%
+   filter(substrate == "kernel") %>% 
+  gather(complex, n_isol, 13:16)
+```
+
+
+```{r}
+theme_set(theme_minimal_hgrid())
+isolates_states <- dat %>%
+  group_by(state) %>%
+  summarize(isol = sum(n_isol)) %>%
+  arrange(-isol) %>%
+  ggplot(aes(reorder(state, -isol), isol)) +
+  geom_col(fill = "steelblue", color = "grey90") +
+  labs(x = "States", y = "Number of isolates") +
+  theme(legend.position = "none") 
+```
+
+
+Now we can check the total number of isolates, species and how their distribution across the samples and the states. Let's see how the 352 isolates were distributed across the states and locations.
+
+
+
+
+
+```{r}
+dat %>%
+  group_by(city, state) %>%
+  summarize(isol = sum(n_isol)) %>%
+  arrange(-isol) %>%
+  ggplot(aes(reorder(city, -isol), isol, fill = state)) +
+  geom_col() +
+  theme_minimal_vgrid()+
+  scale_fill_futurama()+
+  labs(x = "States", y = "Number of isolates") +
+  coord_flip() +
+  geom_text(aes(label = isol), position = position_stack(vjust = 0.8))
+```
+
+These isolates belonged to four Fusarium species complex as shown below.
+
+```{r}
+dat %>%
+  group_by(complex) %>%
+  summarize(n_isol2 = sum(n_isol))
+```
+
+Produce a plot for these data on isolates by species complex.
+
+```{r}
+p_complex <- dat %>%
+  group_by(complex) %>%
+  summarize(n_isol2 = sum(n_isol)) %>%
+  ggplot(aes(complex, n_isol2, fill = complex)) +
+  geom_col() +
+  scale_fill_futurama()+
+  ylim(0, 120) +
+  geom_text(aes(label = n_isol2), position = position_stack(vjust = 1.05)) +
+  theme(legend.position = "none") +
+  labs(x = "Species complex", y = "Number of isolates", fill = "Species complex")
+p_complex
+```
+
+We can make a plot for the prevalence of the species complex across the states. 
+
+```{r}
+
+p_complex_state <- dat %>%
+  group_by(state, complex) %>%
+  summarise(isol_sample = sum(n_isol)) %>%
+  ggplot(aes(reorder(state, -isol_sample), isol_sample, fill = complex)) +
+  scale_fill_futurama()+
+  geom_col() +
+  ylim(0, 120) +
+theme(axis.text.x = element_text(angle = 25, hjust = 1))+
+    theme(legend.position = "none") +
+  labs(x = "State (number of rice samples)", y = "Number of isolates", fill = "Species complex")
+p_complex_state
+```
+
+
+Now we combine the two plots to produce a figure for the paper.
+
+
+```{r}
+p_complex_all <- plot_grid(isolates_class, 
+                           p_complex, p_complex_state,
+  ncol = 1, labels = c("A", "B", "C"),
+  align = "hv", rel_heights = c(1, 1)
+)
+ggsave("figs/Figure2.png", p_complex_all, width = 4.5, height = 10)
+```
+
+
+There were seven locations where at least ten isolates were obtained. Let's see composition and frequency of the species in those locations.
+
+```{r}
+p_complex_city <- dat %>%
+  filter(city == "Brazabrantes" | city == "Nova Veneza" | city == "Itaja<U+00ED>" | city == "Sinop" | city == "Palma" | city == "S<U+00E3>o Sep<U+00E9>" | city == "Pelotas") %>%
+  group_by(city, complex) %>%
+  summarise(isol_sample = sum(n_isol)) %>%
+  ggplot(aes(reorder(city, -isol_sample), isol_sample, fill = complex)) +
+  geom_col() +
+  ylim(0, 115) +
+  theme_minimal_vgrid()+
+  geom_hline(yintercept = 10) +
+  coord_flip() +
+  scale_fill_futurama()+
+  theme(legend.position = "right") +
+  labs(x = "State (number of rice samples)", y = "Number of isolates", fill = "Species complex")
+p_complex_city
+```
+
+
+Now we will check the frequency of the species by their co-ocurrences in same sample.  There were cases with 1 to 4 species together.
+
+
+```{r}
+dat_fus %>%
+  filter(substrate == "kernel") %>%
+  group_by(Complex) %>%
+  tabyl(Complex)
+```
+
+As shown above, there were 14 samples with no isolates. The large majority had one or two species. In only 9 and 2 samples there were three or four species, respectively.
+
+As expected, the higher diversity of species in a sample was associated with the number of isolates obtained per sample. As shown below, three or four species were found in samples that yielded 10 or more isolates on average.
+
+```{r}
+
+dat_fus %>%
+  filter(substrate == "kernel") %>%
+  select(n_complex, n_isolates) %>%
+  tabyl(n_complex)
+```
+
+
+Now we count the number of co-ocurrences by pair of species. We need to prepare the dataset first
+
+```{r}
+dat_complex <- dat_fus %>%
+  filter(substrate == "kernel") %>%
+  select(13:16) %>%
+  mutate(FCSC2 = case_when(
+    FCSC > 0 ~ "FCSC",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(FFSC2 = case_when(
+    FFSC > 0 ~ "FFSC",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(FGSC2 = case_when(
+    FGSC > 0 ~ "FGSC",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(FIESC2 = case_when(
+    FIESC > 0 ~ "FIESC",
+    TRUE ~ NA_character_
+  )) %>%
+  select(5:8)
+
+
+freq_SC <- dat_complex %>% 
+  mutate(sp1 = case_when(FCSC2 >0 ~ 1,
+                         TRUE ~ 0),
+         sp2 = case_when(FFSC2 >0 ~ 1,
+                         TRUE ~ 0),
+         sp3 = case_when(FGSC2 >0 ~ 1,
+                         TRUE ~ 0),
+         sp4 = case_when(FIESC2 >0 ~ 1,
+                         TRUE ~ 0),
+         sp_total= sp1+sp2+sp3+sp4)
+
+p1_complex <- freq_SC %>% 
+  filter(sp_total>0) %>% 
+  ggplot(aes(sp_total))+
+  geom_bar(fill = "Orange")+
+  labs(x = "Number of species complex in a sample", y = "Frequency" )
+
+freq_SC %>% 
+  filter(sp_total == 1) %>% 
+  gather(species, count, 1:4) %>% 
+  filter(count > 0) %>% 
+  tabyl(count)
+
+freq_SC %>% 
+ # filter(sp_total == 1) %>% 
+  gather(species, count, 1:4) %>% 
+  filter(count > 0) %>% 
+ggplot(aes(sp_total, fill = count))+
+  scale_fill_futurama()+
+  geom_bar()
+
+
+
+freq_SC %>% 
+  filter(sp_total == 3) %>% 
+  gather(species, count, 1:4) %>% 
+    filter(count > 0) %>% 
+  tabyl(count)
+
+  
+```
+
+Here we produce a matrix for the co-ocurrences.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(purrr)
+library(purrrlyr)
+species_list <- flatten(by_row(dat_complex, ..f = function(x) flatten_chr(x), .labels = FALSE))
+species_list <- lapply(species_list, function(x) x[!is.na(x)])
+
+# create the edge list
+species_edge_list <- t(do.call(cbind, lapply(species_list[sapply(species_list, length) >= 2], combn, 2)))
+
+```
+
+Heatmap
+
+```{r}
+tile <- table(data.frame(species_edge_list))
+tile <- data.frame(tile)
+tile 
+
+p2_complex <- tile %>% 
+  filter(Freq > 0) %>% 
+ ggplot(aes(X1, X2, fill = Freq, label = Freq)) + geom_raster()+
+  scale_fill_gradient_tableau()+
+   geom_text(size = 3) +
+  
+   theme_minimal_grid()+
+  theme(legend.position = "none")+
+  labs(x = "", y = "")
+
+p1 <- plot_grid(p1_complex, p2_complex, align = "vh", labels = LETTERS)
+ggsave("figs/Figure3.png", p1, width = 9, height=3)
+
+```
+
+## Mycotoxin analysis
+
+Let's use the same dataset but create it as `dat_tox`.
+
+```{r message=FALSE, warning=FALSE}
+dat_tox <- dat_fus
+```
+
+Now we will group the mycotoxins by their respective class. We use the `case_when` function to create the new variable conditioned to the name of the mycotoxin.
+
+```{r message=FALSE, warning=FALSE}
+
+dat <- dat_tox %>%
+  gather(mycotoxin, concentration, 20:34) %>%
+  mutate(mycotoxin_class = case_when(
+    mycotoxin == "AcDON" ~ "AcDON",
+    mycotoxin == "DON" ~ "DON",
+     mycotoxin == "ZEA" ~ "Zearalenone",
+    mycotoxin == "ENN A" ~ "Enniatins",
+    mycotoxin == "ENN A1" ~ "Enniatins",
+    mycotoxin == "ENN B" ~ "Enniatins",
+    mycotoxin == "ENN B1" ~ "Enniatins",
+    mycotoxin == "BEA" ~ "Beauvericin",
+    mycotoxin == "FUM B1" ~ "Fumonisins",
+    mycotoxin == "FUM B2" ~ "Fumonisins",
+    mycotoxin == "T-2" ~ "A-Trichothecene",
+    mycotoxin == "HT-2" ~ "A-Trichothecene",
+    mycotoxin == "MON" ~ "Moniliformin",
+    mycotoxin == "NEO" ~ "Neosolaniol",
+    TRUE ~ "other"
+  ))
+```
+
+
+
+### Samples by state
+
+Number of samples by state
+
+
+```{r message=FALSE, warning=FALSE}
+samples <- dat %>%
+  filter(substrate == "kernel") %>%
+  tabyl(field, mycotoxin) 
+
+head(samples)
+```
+
+
+### Prevalence by toxin
+
+We need to create a variable to indicate whether the mycotoxin was present or not, and whether the concentration was determined or below the LOQ.
+
+```{r message=FALSE, warning=FALSE}
+dat1 <- dat %>%
+  mutate(prevalence = case_when(
+    concentration == 0.001 ~ "< LOQ",
+    concentration > 0 ~ "> LOQ",
+    TRUE ~ "Absent"
+  ))
+
+p_ntoxins <- dat1 %>% 
+  filter(substrate == "kernel") %>% 
+  filter(prevalence == "> LOQ") %>% 
+  tabyl(sample, mycotoxin) %>% 
+  data.frame() %>% 
+  gather(myco, value, 2:14) %>% 
+  filter(value == 1) %>% 
+  group_by(sample) %>% 
+  summarize(sum_value = sum(value)) %>% 
+  arrange(sum_value) %>% 
+  ggplot(aes(sum_value))+
+  geom_bar(fill = "Orange")+
+  theme_minimal_hgrid(font_size = 10)+
+  labs(x = "Mycotoxins per sample", y = "Frequency")+
+  scale_x_continuous(breaks = seq(3,8, 1))
+
+```
+
+
+
+
+```{r}
+
+p_state <- dat1 %>%
+  tabyl(mycotoxin, prevalence, state) %>%
+  reshape2::melt() %>%
+  filter(variable !="Absent") %>%
+  filter(mycotoxin != "n_complex") %>% 
+  filter(mycotoxin != "DON_total") %>% 
+  filter(variable == "> LOQ") %>% 
+  filter(mycotoxin != "ENN A") %>% 
+  filter(mycotoxin != "ENN A1") %>% 
+  
+  ggplot(aes(reorder(mycotoxin, value),  value, fill = L1, label = value)) +
+  geom_col() +
+   labs(x = "Mycotoxin", fill = "State",y = "Number of contaminated samples") +
+  ylim(0, 100) +
+  scale_fill_tableau()+
+
+  #facet_wrap(~ L1 , ncol = 4)+
+  #geom_text(size = 3, position = position_stack(vjust = 0.5)) +
+  theme_minimal_hgrid(font_size = 10) 
+```
+
+
+
+
+
+
+
+```{r}
+p_state2 <- dat1 %>%
+  filter(substrate == "kernel") %>%
+  tabyl(state, prevalence, mycotoxin) %>%
+  reshape2::melt() %>%
+  filter(L1 != "DON_total") %>%
+  filter(variable == "> LOQ") %>% 
+  ggplot(aes(reorder(L1, -value), value, fill = state), color = "grey90") +
+  geom_col() +
+  theme_minimal_hgrid(font_size = 10) +
+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))+
+    labs(x = "", y = "Number of contaminated samples > LOQ", fill = "Prevalence") +
+  #facet_wrap(~state, ncol = 4) +
+  scale_fill_tableau()+
+  theme(legend.position = "right") 
+```
+
+
+
+```{r}
+p_complex_all <- plot_grid(p_ntoxins, p_state2,
+  ncol = 2, labels = LETTERS,
+  align = "hv", rel_widths = c(0.4, 1))
+ggsave("figs/Figure4.png", p_complex_all, width = 8, height = 3.5)
+```
+
+
+```{r}
+mic_conc2 <- dat1 %>%
+  filter(substrate == "husk") %>% 
+  filter(prevalence == "> LOQ") %>%
+  #filter(mycotoxin != "DON_total") %>%
+  group_by(mycotoxin_class, mycotoxin) %>%
+  summarize(n = n(),
+            mean_conc = mean(concentration),
+            median_conc = median(concentration),
+            max_conc= max(concentration)) 
+
+write_csv(mic_conc2, "data/mic_conc_husk.csv")
+  
+
+dat1 %>% 
+   ggplot(aes(reorder(mycotoxin, -as.numeric(concentration)), as.numeric(concentration))) +
+ 
+ theme_minimal_hgrid(font_size = 10) +
+  
+  labs(x = "Mycotoxin", y = "Concentration (ppb)") +
+    geom_jitter(color = "gray60", alpha = 0.6, shape = 1, width = 0.2, height = 0) +
+  geom_boxplot(outlier.colour = NA, fill = NA)
+```
+
+
+
+
+
+
+```{r}
+p_conc2 <- dat1 %>%
+  filter(concentration != 0.001) %>%
+  filter(substrate != "kernel") %>%
+  
+  filter(mycotoxin_class != "other") %>% 
+  filter(mycotoxin_class != "Enniatins") %>% 
+    filter(mycotoxin_class != "Fumonisins") %>% 
+    filter(mycotoxin_class != "A-Trichothecene") %>%
+    filter(mycotoxin_class != "Neosolaniol") %>% 
+   filter(mycotoxin_class != "Moniliformin") %>%
+  group_by(substrate, mycotoxin) %>%
+    ggplot(aes(substrate, as.numeric(concentration), color = substrate)) +
+  geom_jitter(width = 0.1, size = 1, shape = 1, alpha = 0.5, color = "grey40") +
+ # geom_boxplot() +
+  facet_wrap(~mycotoxin_class, ncol = 2) +
+ylim(0,170)+ theme_minimal_hgrid() +
+  scale_color_futurama()+
+  labs(x = "kernel fraction", y = "Concentration (ppb)") +
+  theme(legend.position = "none") 
+```
+
+
+```{r}
+p_conc3 <- dat1 %>%
+  filter(concentration != 0.001) %>%
+  #filter(concentration <400) %>%
+   filter(substrate != "kernel") %>%
+    filter(mycotoxin_class != "AcDON") %>% 
+  filter(mycotoxin_class != "DON") %>% 
+  filter(mycotoxin_class != "other") %>% 
+  filter(mycotoxin_class != "Enniatins") %>% 
+    filter(mycotoxin_class != "Fumonisins") %>% 
+    filter(mycotoxin_class != "A-Trichothecene") %>%
+    filter(mycotoxin_class != "Neosolaniol") %>% 
+   filter(mycotoxin_class != "Moniliformin") %>%
+  group_by(state, mycotoxin) %>%
+    ggplot(aes(state, as.numeric(concentration), color= substrate)) +
+  #geom_jitter(width = 0.05, size = 1, shape = 1, alpha = 0.5) +
+  geom_boxplot() +
+  facet_wrap(~ mycotoxin_class , ncol = 1, scales = "free_y") +
+  scale_color_few()+
+  ylim(0,190)+
+ theme_minimal_hgrid(font_size = 10)+
+theme(panel.spacing = unit(2, "lines"), axis.text.x = element_text(angle = 45, hjust = 1) )+
+    labs(x = "State", y = "Concentration (ppb)", color = "Substrate") +
+  theme(legend.position = "bottom") +
+  ggsave("figs/Figure5.png", width = 3, height = 5)
+
+
+p_conc31 <- dat1 %>%
+  filter(concentration != 0.001) %>%
+  #filter(concentration <400) %>%
+   filter(substrate != "kernel") %>%
+    filter(mycotoxin_class != "Beauvericin") %>% 
+  filter(mycotoxin_class != "Zearalenone") %>% 
+  filter(mycotoxin_class != "other") %>% 
+  filter(mycotoxin_class != "Enniatins") %>% 
+    filter(mycotoxin_class != "Fumonisins") %>% 
+    filter(mycotoxin_class != "A-Trichothecene") %>%
+    filter(mycotoxin_class != "Neosolaniol") %>% 
+   filter(mycotoxin_class != "Moniliformin") %>%
+  group_by(state, mycotoxin) %>%
+    ggplot(aes(state, as.numeric(concentration), color= substrate)) +
+  #geom_jitter(width = 0.05, size = 1, shape = 1, alpha = 0.5) +
+  geom_boxplot() +
+  facet_wrap(~ mycotoxin_class , ncol = 1, scales = "free_y") +
+  scale_color_few()+
+  ylim(0,170)+
+ theme_minimal_hgrid(font_size = 10)+
+theme(panel.spacing = unit(2, "lines"), axis.text.x = element_text(angle = 45, hjust = 1) )+
+    labs(x = "State", y = "Concentration (ppb)", color = "Substrate") +
+  theme(legend.position = "bottom") +
+  ggsave("figs/Figure6.png", width = 3, height = 5)
+
+```
+
+
+```{r}
+conc <- plot_grid(p_conc3, p_conc2,axis = "bt", labels = LETTERS,
+  align = "hv", rel_widths = c(1.1,1))
+#ggsave("figs/toxins_conc.png", conc, width = 9, height = 5)
+```
+
+
+
+Mean concentration of the mycotoxins 
+
+```{r}
+dat1 %>%
+  filter(concentration != 0.001) %>%
+  filter(substrate == "kernel") %>%
+  group_by(substrate, mycotoxin) %>%
+  summarize(
+    conc2 = mean(as.numeric(concentration), na.rm = TRUE),
+    conc_sd = sd(as.numeric(concentration), na.rm = TRUE)
+  ) %>%
+  ggplot(aes(reorder(mycotoxin, conc2), conc2, label = round(conc2, 1))) +
+  geom_bar(stat = "identity", fill = "gray70") +
+  geom_text(size = 3, position = position_stack(vjust = 1)) +
+
+  coord_flip()
+```
+
+
+
+
+
+## Fusarium and mycotoxins
+
+```{r}
+dat2 <- dat1 %>% 
+  select(13:16, 20:21) %>% 
+  filter(concentration > 0.001) %>% 
+  gather(species, name, 1:4) %>% 
+  select(1,3) %>% 
+  tabyl(mycotoxin, species)
+```
+

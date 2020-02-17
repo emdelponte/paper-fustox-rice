@@ -1,0 +1,13 @@
+mycotoxin_class,mycotoxin,n,mean_conc,median_conc,max_conc
+A-Trichothecene,HT-2,61,2.3081967213114756,1.7,11.2
+A-Trichothecene,T-2,1,1.4,1.4,1.4
+AcDON,AcDON,91,51.536263736263734,43.5,156
+Beauvericin,BEA,61,9.711475409836066,2.9,110.4
+DON,DON,10,9.76,8.4,23.7
+Enniatins,ENN B,1,2.6,2.6,2.6
+Enniatins,ENN B1,2,0.85,0.85,1.2
+Fumonisins,FUM B2,3,2.8333333333333335,2.9,3.4
+Moniliformin,MON,1,13.3,13.3,13.3
+Neosolaniol,NEO,24,0.8958333333333334,0.75,2.2
+other,DON_total,91,52.60901098901099,43.5,156
+Zearalenone,ZEA,91,3.034065934065934,1.2,34.6
